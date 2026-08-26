@@ -1,0 +1,30 @@
+{
+  "adapter": null,
+  "auto_discover": true,
+  "base_instance": 60,
+  "timeout": 900,
+  "min_publish_interval": 0,
+  "scan_uuid_filter": false,
+  "require_shelly_name": false,
+  "log_level": "INFO",
+
+  "devices": {
+    "AA:BB:CC:11:22:33": {
+      "name": "Fridge",
+      "temperature_type": 1,
+      "offset": -0.3
+    },
+    "AA:BB:CC:44:55:66": {
+      "name": "Battery compartment",
+      "temperature_type": 0,
+      "instance": 62
+    },
+    "AA:BB:CC:77:88:99": {
+      "name": "Encrypted sensor",
+      "bindkey": "231d39c1d7cc1ab1aee224cd096db932"
+    },
+    "AA:BB:CC:00:00:00": {
+      "ignore": true
+    }
+  }
+}
