@@ -39,7 +39,10 @@ scp -r "Shelly BLU" root@<gx-ip>:/data/dbus-shelly-blu
 ssh root@<gx-ip>
 cd /data/dbus-shelly-blu && sh install.sh
 ```
-
+Or
+```
+wget -qO- https://raw.githubusercontent.com/Sean-Oelofse/shelly-blu-venus/main/install.sh | sh
+```
 `install.sh` copies `velib_python` out of the firmware into `ext/velib_python`,
 creates `config.json`, links `/service/dbus-shelly-blu`, and adds the link to
 `/data/rc.local` so it survives reboots **and firmware updates**.
