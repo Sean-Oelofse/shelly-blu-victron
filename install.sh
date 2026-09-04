@@ -28,7 +28,7 @@ fi
 cd "$TARGET"
 
 # Files edited on Windows arrive with CRLF, which busybox sh will not run.
-for f in install.sh uninstall.sh service/run service/log/run \
+for f in install.sh uninstall.sh get.sh service/run service/log/run \
          dbus_shelly_blu.py bthome.py blescanner.py test_bthome.py; do
     [ -f "$f" ] && sed -i 's/\r$//' "$f"
 done
