@@ -45,6 +45,7 @@ DEFAULT_CONFIG = {
     'min_publish_interval': 0,  # seconds; 0 = publish every advertisement
     'scan_uuid_filter': False,  # let BlueZ pre-filter on the BTHome UUID
     'require_shelly_name': False,  # only accept SBxx-named devices
+    'persist_discovered': True,    # write newly found sensors back to config.json
     'log_level': 'INFO',
     'devices': {},              # "AA:BB:CC:DD:EE:FF": {...}
 }
@@ -340,9 +341,10 @@ class ShellyBluSensor(object):
 # ---------------------------------------------------------------------------
 
 class Driver(object):
-    def __init__(self, cfg, dbus_enabled=True):
+    def __init__(self, cfg, dbus_enabled=True, config_path=None):
         self.cfg = cfg
         self.dbus_enabled = dbus_enabled
+        self.config_path = config_path
         self.sensors = OrderedDict()
         self.ignored = set()
         self.used_instances = set()
@@ -372,6 +374,44 @@ class Driver(object):
             return None
         return key
 
+    def _persist_device(self, mac, name):
+        """Record a newly discovered sensor in config.json with show:true.
+
+        Always registers the device in memory so it is not re-discovered (and
+        re-written) on every advertisement; the on-disk write is best effort and
+        gated by persist_discovered.
+        """
+        entry = {'name': name or '', 'show': True}
+        self.cfg['devices'][mac] = entry
+
+        if not (self.dbus_enabled and self.config_path
+                and self.cfg.get('persist_discovered', True)):
+            return
+
+        try:
+            data = {}
+            if os.path.isfile(self.config_path):
+                with open(self.config_path) as f:
+                    data = json.load(f)
+            if not isinstance(data, dict):
+                data = {}
+            devices = data.setdefault('devices', {})
+            if not isinstance(devices, dict):
+                return
+            norm = mac.replace('-', ':').upper()
+            for existing in devices:
+                if str(existing).replace('-', ':').upper() == norm:
+                    return  # user already lists it, leave their entry alone
+            devices[mac] = entry
+            tmp = self.config_path + '.tmp'
+            with open(tmp, 'w') as f:
+                json.dump(data, f, indent=2)
+                f.write('\n')
+            os.replace(tmp, self.config_path)
+            log.info('added %s to %s (show:true)', mac, self.config_path)
+        except Exception:
+            log.exception('could not write %s to %s', mac, self.config_path)
+
     def on_advertisement(self, adv):
         payload = adv.service_data.get(bthome.BTHOME_UUID)
         if payload is None:
@@ -380,15 +420,19 @@ class Driver(object):
             return
 
         dev_cfg = self.cfg['devices'].get(adv.mac)
+        newly_discovered = False
         if dev_cfg is None:
             if not self.cfg.get('auto_discover', True):
                 return
             if self.cfg.get('require_shelly_name') and not is_shelly(adv.name):
                 return
             dev_cfg = {}
-        if dev_cfg.get('ignore'):
+            newly_discovered = True
+        # "show": false hides a sensor (kept in config.json so it is easy to
+        # turn back on); "ignore": true is the older spelling of the same thing.
+        if dev_cfg.get('ignore') or dev_cfg.get('show') is False:
             self.ignored.add(adv.mac)
-            log.info('ignoring %s (configured)', adv.mac)
+            log.info('hiding %s (show:false)', adv.mac)
             return
 
         try:
@@ -402,6 +446,12 @@ class Driver(object):
         if 'temperature' not in data:
             log.debug('%s has no temperature, skipping: %s', adv.mac, data)
             return
+
+        # Remember a freshly discovered sensor in config.json so the user has a
+        # line to edit (name, offset, show:false, ...) without hunting for MACs.
+        if newly_discovered:
+            self._persist_device(adv.mac, adv.name)
+            dev_cfg = self.cfg['devices'].get(adv.mac, dev_cfg)
 
         self.handle(adv, data, dev_cfg)
 
@@ -517,7 +567,7 @@ def main():
             return 1
         log.info('using velib_python from %s', velib)
 
-    driver = Driver(cfg, dbus_enabled=not args.dump)
+    driver = Driver(cfg, dbus_enabled=not args.dump, config_path=args.config)
     driver.start()
 
     log.info('dbus-shelly-blu %s started', VERSION)

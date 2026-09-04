@@ -97,18 +97,27 @@ python3 /data/dbus-shelly-blu/dbus_shelly_blu.py --dump -d
 | `min_publish_interval` | `0` | throttle D-Bus updates, in seconds |
 | `scan_uuid_filter` | `false` | let BlueZ pre-filter on the BTHome UUID (less D-Bus traffic, but some adapters then miss packets) |
 | `require_shelly_name` | `false` | only accept devices whose BLE name starts with `SBHT`, `SBBT`, … |
+| `persist_discovered` | `true` | write newly found sensors back into `config.json` with `show: true` |
 | `log_level` | `"INFO"` | `DEBUG` logs every decoded advertisement |
+
+With `persist_discovered` on (the default), every auto-discovered sensor is
+added to `config.json` under `devices` the first time it is seen, with a
+`show: true` flag. To stop a sensor from appearing in the GUI, set its
+`show` to `false` and restart the service (`svc -t /service/dbus-shelly-blu`) —
+its line stays in the file so it is easy to turn back on later. Set
+`persist_discovered` to `false` if you would rather curate `devices` by hand.
 
 Per device, under `devices`:
 
 | Key | Meaning |
 | --- | --- |
 | `name` | initial custom name shown in the GUI |
+| `show` | `false` to hide this sensor from the GUI (default `true`) |
 | `instance` | fixed VRM device instance (otherwise auto-assigned) |
 | `temperature_type` | `0` battery, `1` fridge, `2` generic |
 | `offset` | °C calibration added to the reading |
 | `bindkey` | 32 hex chars, only for sensors set to encrypted BTHome |
-| `ignore` | `true` to skip this device entirely |
+| `ignore` | older spelling of `show: false` (still honoured) |
 
 Custom name and temperature type are also writable from the GX GUI and VRM;
 changes are stored in localsettings under `/Settings/Devices/shelly_blu_*`, so
