@@ -234,16 +234,27 @@ class ShellyBluSensor(object):
         return instance
 
     def _create_service(self, name, bus):
+        import inspect
         from vedbus import VeDbusService
         # velib_python >= v3.20 wants an explicit register() after the paths
-        # are added; older versions register in the constructor.
+        # are added; older versions register in the constructor and do not
+        # accept the bus/register kwargs. Inspect the signature and pass only
+        # what it supports: constructing-and-catching would leave a half-built
+        # VeDbusService whose __del__ then raises a noisy AttributeError on
+        # '_dbusnodes' when it is garbage collected.
         try:
-            return VeDbusService(name, bus=bus, register=False)
+            params = inspect.signature(VeDbusService.__init__).parameters
+        except (TypeError, ValueError):
+            params = {}
+        kwargs = {}
+        if 'bus' in params:
+            kwargs['bus'] = bus
+        if 'register' in params:
+            kwargs['register'] = False
+        try:
+            return VeDbusService(name, **kwargs)
         except TypeError:
-            try:
-                return VeDbusService(name, bus=bus)
-            except TypeError:
-                return VeDbusService(name)
+            return VeDbusService(name)
 
     def _register(self):
         register = getattr(self.service, 'register', None)
