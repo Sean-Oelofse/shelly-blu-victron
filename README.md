@@ -29,20 +29,32 @@ with Venus OS.
 | `bthome.py` | BTHome v2 decoder (all object ids, optional encryption) |
 | `blescanner.py` | BlueZ D-Bus LE scanner that keeps discovery alive |
 | `test_bthome.py` | decoder self-test, runs anywhere, no hardware needed |
+| `get.sh` | one-line installer that pulls this repo from GitHub |
 | `install.sh` / `uninstall.sh` | daemontools service setup |
 | `config.sample.json` | annotated example config |
 
 ## Install
+
+Install straight from GitHub — ssh into the GX device and run:
+
+```sh
+wget -qO- https://raw.githubusercontent.com/Sean-Oelofse/shelly-blu-victron/main/get.sh | sh
+```
+(or `curl -fsSL https://raw.githubusercontent.com/Sean-Oelofse/shelly-blu-victron/main/get.sh | sh`)
+
+`get.sh` downloads this repo, unpacks it to `/data/dbus-shelly-blu`, and runs
+`install.sh`. Re-running it upgrades in place and keeps your existing
+`config.json`. Install a branch or tag with `REF`, e.g.
+`... | REF=v1.0 sh`.
+
+Or copy the folder over yourself:
 
 ```sh
 scp -r "Shelly BLU" root@<gx-ip>:/data/dbus-shelly-blu
 ssh root@<gx-ip>
 cd /data/dbus-shelly-blu && sh install.sh
 ```
-Or
-```
-wget -qO- https://raw.githubusercontent.com/Sean-Oelofse/shelly-blu-venus/main/install.sh | sh
-```
+
 `install.sh` copies `velib_python` out of the firmware into `ext/velib_python`,
 creates `config.json`, links `/service/dbus-shelly-blu`, and adds the link to
 `/data/rc.local` so it survives reboots **and firmware updates**.

@@ -114,7 +114,7 @@ def fmt(spec):
 class ShellyBluSensor(object):
     """A single Shelly BLU sensor exported as com.victronenergy.temperature."""
 
-    def __init__(self, mac, model, cfg, dev_cfg):
+    def __init__(self, mac, model, cfg, dev_cfg, used_instances=None):
         from settingsdevice import SettingsDevice
 
         self.mac = mac
@@ -127,12 +127,22 @@ class ShellyBluSensor(object):
         self.last_packet_id = None
         self.online = False
 
+        # Instances already handed out to sibling sensors in this process.
+        # _pick_instance only sees services that are live on the bus, but a
+        # sensor created moments earlier may not have claimed its bus name
+        # yet, so two sensors discovered back-to-back could otherwise grab the
+        # same instance and collide in the GUI/VRM.
+        used_instances = set(used_instances or ())
+
         ident = 'shelly_blu_' + mac.replace(':', '').lower()
         bus = dbus.SystemBus()
 
-        instance = dev_cfg.get('instance')
-        if instance is None:
-            instance = self._pick_instance(bus, cfg.get('base_instance', 60))
+        explicit = dev_cfg.get('instance')
+        if explicit is not None:
+            instance = int(explicit)
+        else:
+            instance = self._pick_instance(bus, cfg.get('base_instance', 60),
+                                           used_instances)
 
         self.settings = SettingsDevice(bus, {
             'instance': ['/Settings/Devices/%s/ClassAndVrmInstance' % ident,
@@ -147,6 +157,24 @@ class ShellyBluSensor(object):
             instance = int(str(self.settings['instance']).split(':')[1])
         except (IndexError, ValueError):
             instance = int(instance)
+
+        # Self-heal a duplicated instance. An earlier version could persist the
+        # same instance for two sensors that raced onto it; that reload would
+        # keep them colliding forever. If the instance we read back is already
+        # taken, hand out a fresh one and persist it (auto-assigned only; an
+        # explicitly configured instance is left as the user asked).
+        if explicit is None and instance in used_instances:
+            new_instance = self._pick_instance(
+                bus, cfg.get('base_instance', 60), used_instances)
+            try:
+                self.settings['instance'] = 'temperature:%d' % new_instance
+            except Exception:
+                log.exception('%s: could not persist reassigned instance', mac)
+            log.warning('%s had duplicate instance %d, reassigned to %d',
+                        mac, instance, new_instance)
+            instance = new_instance
+
+        self.instance = instance
 
         service_name = 'com.victronenergy.temperature.%s' % ident
         self.service = self._create_service(service_name, bus)
@@ -182,9 +210,13 @@ class ShellyBluSensor(object):
     # -- plumbing -------------------------------------------------------
 
     @staticmethod
-    def _pick_instance(bus, base):
-        """First device instance not already used by a temperature service."""
-        used = set()
+    def _pick_instance(bus, base, extra_used=None):
+        """First device instance not already used by a temperature service.
+
+        extra_used seeds the set with instances already assigned in this
+        process but perhaps not yet visible on the bus.
+        """
+        used = set(extra_used or ())
         try:
             for name in bus.list_names():
                 if not str(name).startswith('com.victronenergy.temperature.'):
@@ -302,6 +334,7 @@ class Driver(object):
         self.dbus_enabled = dbus_enabled
         self.sensors = OrderedDict()
         self.ignored = set()
+        self.used_instances = set()
         self.bus = dbus.SystemBus()
         uuids = [bthome.BTHOME_UUID] if cfg.get('scan_uuid_filter') else None
         self.scanner = BleScanner(self.bus, self.on_advertisement,
@@ -368,12 +401,14 @@ class Driver(object):
                 self._print(adv, data)
                 return
             try:
-                sensor = ShellyBluSensor(adv.mac, adv.name, self.cfg, dev_cfg)
+                sensor = ShellyBluSensor(adv.mac, adv.name, self.cfg, dev_cfg,
+                                         used_instances=self.used_instances)
             except Exception:
                 log.exception('failed to create service for %s', adv.mac)
                 self.ignored.add(adv.mac)
                 return
             self.sensors[adv.mac] = sensor
+            self.used_instances.add(sensor.instance)
         if self.dbus_enabled:
             sensor.update(data, adv.rssi)
         else:
