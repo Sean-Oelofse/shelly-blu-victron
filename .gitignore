@@ -1,0 +1,9 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Local runtime config (created from config.sample.json by install.sh)
+config.json
+
+# velib_python copied out of the firmware by install.sh
+ext/
