@@ -48,7 +48,7 @@ class BleScanner(object):
         self.restart_interval = restart_interval
         self.adapter_path = None
         self._discovering = False
-        self._cache = {}                     # path -> (mac, name)
+        self._cache = {}                     # path -> (mac, name, service_data)
 
     # -- setup ----------------------------------------------------------
 
@@ -177,7 +177,7 @@ class BleScanner(object):
     # -- device handling ------------------------------------------------
 
     def _handle_device(self, path, props, partial=False):
-        mac, name = self._cache.get(path, (None, None))
+        mac, name, cached_sd = self._cache.get(path, (None, None, None))
 
         if 'Address' in props:
             mac = str(props['Address']).upper()
@@ -195,21 +195,32 @@ class BleScanner(object):
             else:
                 return
 
-        self._cache[path] = (mac, name)
+        service_data = None
+        if 'ServiceData' in props:
+            service_data = {}
+            for uuid, value in props['ServiceData'].items():
+                service_data[str(uuid).lower()] = bytes(bytearray(value))
+            if service_data:
+                cached_sd = service_data
 
-        if 'ServiceData' not in props:
+        self._cache[path] = (mac, name, cached_sd)
+
+        if not cached_sd:
             return
 
-        service_data = {}
-        for uuid, value in props['ServiceData'].items():
-            service_data[str(uuid).lower()] = bytes(bytearray(value))
-        if not service_data:
+        # BlueZ only fires a ServiceData PropertiesChanged when the payload
+        # changes. A Shelly H&T re-broadcasts the same packet while its reading
+        # is stable, and BlueZ then reports only a new RSSI. Re-deliver the last
+        # known payload on such updates so a stable sensor keeps refreshing and
+        # does not time out; the per-sensor packet_id dedup avoids redundant
+        # D-Bus writes. Ignore churn that carries neither ServiceData nor RSSI.
+        if service_data is None and 'RSSI' not in props:
             return
 
         rssi = int(props['RSSI']) if 'RSSI' in props else None
 
         try:
-            self.callback(Advertisement(path, mac, name, rssi, service_data))
+            self.callback(Advertisement(path, mac, name, rssi, cached_sd))
         except Exception:
             log.exception('advertisement callback failed for %s', mac)
 
