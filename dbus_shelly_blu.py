@@ -241,7 +241,13 @@ class ShellyBluSensor(object):
                     continue
                 try:
                     obj = bus.get_object(str(name), '/DeviceInstance')
-                    used.add(int(obj.GetValue()))
+                    # Cap the wait: a stale/hung temperature service would
+                    # otherwise block the whole daemon for the default 25s
+                    # D-Bus timeout while we probe it, stalling every other
+                    # sensor. A short timeout just means we may miss its
+                    # instance, which the in-process used set and self-heal
+                    # already guard against.
+                    used.add(int(obj.GetValue(timeout=5)))
                 except dbus.DBusException:
                     pass
         except dbus.DBusException:
@@ -254,6 +260,19 @@ class ShellyBluSensor(object):
     def _create_service(self, name, bus):
         import inspect
         from vedbus import VeDbusService
+        # Every VeDbusService registers a dbus.service.Object at the root path
+        # '/', and dbus-python registers object paths on the *connection*. All
+        # our sensors live in one process, so if they share a connection the
+        # second service dies with 'there is already a handler' for '/', gets
+        # ignored, and only one sensor ever appears. Give each service its own
+        # private system-bus connection so their '/' handlers don't collide.
+        try:
+            conn = dbus.SystemBus(private=True)
+        except Exception:
+            log.debug('private bus unavailable, sharing the system bus')
+            conn = bus
+        self._conn = conn
+
         # velib_python >= v3.20 wants an explicit register() after the paths
         # are added; older versions register in the constructor and do not
         # accept the bus/register kwargs. Inspect the signature and pass only
@@ -266,7 +285,7 @@ class ShellyBluSensor(object):
             params = {}
         kwargs = {}
         if 'bus' in params:
-            kwargs['bus'] = bus
+            kwargs['bus'] = conn
         if 'register' in params:
             kwargs['register'] = False
         try:
@@ -351,6 +370,13 @@ class ShellyBluSensor(object):
             self.service.__del__()
         except Exception:
             pass
+        # Close the per-sensor private connection so its socket is released.
+        conn = getattr(self, '_conn', None)
+        if conn is not None and conn is not dbus.SystemBus():
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
