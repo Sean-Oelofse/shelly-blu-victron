@@ -241,7 +241,13 @@ class ShellyBluSensor(object):
                     continue
                 try:
                     obj = bus.get_object(str(name), '/DeviceInstance')
-                    used.add(int(obj.GetValue()))
+                    # Cap the wait: a stale/hung temperature service would
+                    # otherwise block the whole daemon for the default 25s
+                    # D-Bus timeout while we probe it, stalling every other
+                    # sensor. A short timeout just means we may miss its
+                    # instance, which the in-process used set and self-heal
+                    # already guard against.
+                    used.add(int(obj.GetValue(timeout=5)))
                 except dbus.DBusException:
                     pass
         except dbus.DBusException:
