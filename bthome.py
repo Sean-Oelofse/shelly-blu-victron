@@ -226,9 +226,18 @@ def parse(payload, mac=None, bindkey=None):
             value = raw.decode('utf-8', 'replace') if obj_id == 0x53 else raw.hex()
 
         else:
-            # Unknown id: its length is unknown, so stop rather than emit
-            # garbage from a misaligned parse.
-            raise BTHomeError('unknown object id 0x%02X at offset %d' % (obj_id, i - 1))
+            # Unknown id: its length is not encoded, so we cannot skip past it.
+            # BTHome orders objects by ascending id, so the standard
+            # measurements always come before any vendor-specific tail (some
+            # Shelly H&T firmware appends e.g. 0xF0). Everything decoded so far
+            # consumed its correct length, so keep it and stop here. Only raise
+            # if we have decoded nothing, which points at a genuinely
+            # misaligned or unsupported payload.
+            measured = [k for k in result if k not in ('encrypted', 'trigger_based')]
+            if not measured:
+                raise BTHomeError(
+                    'unknown object id 0x%02X at offset %d' % (obj_id, i - 1))
+            break
 
         # BTHome allows repeated measurement types; they arrive in ascending
         # object id order and become temperature, temperature_2, ...
