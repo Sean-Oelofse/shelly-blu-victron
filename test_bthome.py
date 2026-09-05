@@ -49,12 +49,20 @@ def main():
     check('two temperatures', sub(d, ('temperature', 'temperature_2')),
           {'temperature': 25.0, 'temperature_2': -132.43})
 
-    # An unknown object id must raise rather than emit misaligned values
+    # An unknown object id with nothing decoded yet must raise rather than
+    # emit misaligned values.
     try:
         bthome.parse(bytes.fromhex('40ff0102'))
         check('unknown object id raises', 'no exception', 'BTHomeError')
     except bthome.BTHomeError:
         check('unknown object id raises', True, True)
+
+    # An unknown object id *after* valid measurements keeps what was decoded
+    # (Shelly H&T firmware appends a vendor tail starting 0xF0).
+    d = bthome.parse(bytes.fromhex('40000101642e3545ed00f01100f2040101'))
+    check('unknown tail keeps prefix',
+          sub(d, ('packet_id', 'battery', 'humidity', 'temperature')),
+          {'packet_id': 1, 'battery': 100, 'humidity': 53, 'temperature': 23.7})
 
     # Wrong BTHome version
     try:

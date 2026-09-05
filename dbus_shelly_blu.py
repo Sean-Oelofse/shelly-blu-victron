@@ -82,12 +82,29 @@ def add_velib_to_path():
 def load_config(path):
     cfg = dict(DEFAULT_CONFIG)
     if path and os.path.isfile(path):
-        with open(path) as f:
-            user = json.load(f)
-        unknown = set(user) - set(DEFAULT_CONFIG)
-        if unknown:
-            log.warning('ignoring unknown config keys: %s', ', '.join(sorted(unknown)))
-        cfg.update({k: v for k, v in user.items() if k in DEFAULT_CONFIG})
+        user = None
+        try:
+            with open(path) as f:
+                user = json.load(f)
+        except ValueError as e:
+            # A hand-edit typo (missing comma, trailing comma, ...) must not
+            # crash-loop the service. Keep running on defaults and, crucially,
+            # do not let auto-discovery overwrite the file the user is fixing.
+            log.error('%s is not valid JSON: %s', path, e)
+            log.error('keeping the service alive on built-in defaults; fix the '
+                      'file and restart. Per-device settings are ignored until '
+                      'then, and the file will not be modified.')
+            cfg['persist_discovered'] = False
+        except OSError as e:
+            log.error('could not read %s: %s; using defaults', path, e)
+        if isinstance(user, dict):
+            unknown = set(user) - set(DEFAULT_CONFIG)
+            if unknown:
+                log.warning('ignoring unknown config keys: %s', ', '.join(sorted(unknown)))
+            cfg.update({k: v for k, v in user.items() if k in DEFAULT_CONFIG})
+        elif user is not None:
+            log.error('%s must contain a JSON object, ignoring its contents', path)
+            cfg['persist_discovered'] = False
     elif path:
         log.info('no config file at %s, using defaults', path)
 
